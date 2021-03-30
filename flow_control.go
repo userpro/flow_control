@@ -1,7 +1,7 @@
 /*
  * @Author: dongzhzheng
  * @Date: 2021-03-29 16:45:44
- * @LastEditTime: 2021-03-30 10:14:32
+ * @LastEditTime: 2021-03-30 17:03:12
  * @LastEditors: dongzhzheng
  * @FilePath: /flow_control/flow_control.go
  * @Description:
@@ -9,12 +9,17 @@
 
 package flowcontrol
 
-import "crypto/md5"
+import (
+	"crypto/md5"
+	"sync"
+	"unsafe"
+)
 
 var (
 	defaultFlowControlOptions = FlowControllerOptions{
-		Radio: 0,
-		Hash:  defaultTafHash,
+		Radio:          []uint32{100},
+		Hash:           defaultTafHash,
+		EnableConsumer: false,
 	}
 
 	md5Ctx = md5.New()
@@ -37,12 +42,16 @@ type FlowControllerOption func(*FlowControllerOptions)
 
 // FlowControllerOptions 可配置项
 type FlowControllerOptions struct {
-	Radio uint32
-	Hash  func(string) uint32
+	Radio              []uint32
+	Hash               func(string) uint32
+	EnableConsumer     bool
+	ConsumerBufferSize uint32
+	ConsumerBucketNum  uint32
+	ConsumerFunc       []func(ch <-chan unsafe.Pointer)
 }
 
 // WithForwardRadio 划分比例
-func WithForwardRadio(r uint32) FlowControllerOption {
+func WithForwardRadio(r []uint32) FlowControllerOption {
 	return func(fopt *FlowControllerOptions) {
 		fopt.Radio = r
 	}
@@ -55,15 +64,125 @@ func WithHashFunc(h func(string) uint32) FlowControllerOption {
 	}
 }
 
+// WithEnableConsumer 开启消费者模式
+func WithEnableConsumer(ok bool) FlowControllerOption {
+	return func(fopt *FlowControllerOptions) {
+		fopt.EnableConsumer = ok
+	}
+}
+
+// WithConsumerBufferSize 消费者buffer大小
+func WithConsumerBufferSize(size uint32) FlowControllerOption {
+	return func(fopt *FlowControllerOptions) {
+		fopt.ConsumerBufferSize = size
+	}
+}
+
+// WithConsumerBucketNum 消费者bucket数量
+func WithConsumerBucketNum(num uint32) FlowControllerOption {
+	return func(fopt *FlowControllerOptions) {
+		fopt.ConsumerBucketNum = num
+	}
+}
+
+// WithConsumerFunc 消费者实现
+func WithConsumerFunc(f []func(ch <-chan unsafe.Pointer)) FlowControllerOption {
+	return func(fopt *FlowControllerOptions) {
+		fopt.ConsumerFunc = f
+	}
+}
+
 // FlowController 流量控制
 type FlowController struct {
-	Radio uint32
-	Hash  func(string) uint32
+	Radio              []uint32
+	Hash               func(string) uint32
+	EnableConsumer     bool
+	ConsumerBufferSize uint32
+	ConsumerBucketNum  uint32
+	ConsumerFunc       []func(ch <-chan unsafe.Pointer)
+
+	radio  []int
+	buffer []chan unsafe.Pointer
+	once   sync.Once
 }
 
 // Forward 是否转发
-func (f FlowController) Forward(key string) bool {
-	return (f.Hash(key) & 0x7fffffff % 100) < f.Radio
+// 单纯函数 只用于进行流量划分
+func (f *FlowController) Forward(key string) int {
+	return f.radio[((f.Hash(key) & 0x7fffffff) % 100)]
+}
+
+// Push 灌入数据
+func (f *FlowController) Push(key string, data unsafe.Pointer) {
+	f.buffer[f.Forward(key)] <- data
+}
+
+// consumerDo 消费者启动
+func (f *FlowController) consumerDo() {
+	f.once.Do(
+		func() {
+			for i, ch := range f.buffer {
+				go f.ConsumerFunc[i](ch)
+			}
+		},
+	)
+}
+
+// initRadio 初始化分配比例
+func (f *FlowController) initRadio() {
+	if f.Radio == nil {
+		return
+	}
+
+	// 确保划分总额为100
+	sum := uint32(0)
+	for _, v := range f.Radio {
+		sum += v
+	}
+	if sum < 100 {
+		f.Radio = append(f.Radio, 100-sum)
+	}
+	// 如果划分区间只有一个 == 全量没有划分
+	if len(f.Radio) == 1 {
+		return
+	}
+
+	// 划分区间映射到数组
+	f.radio = make([]int, 100, 100)
+	r := uint32(0)
+	for count, v := range f.Radio {
+		for i := r; i < r+v; i++ {
+			f.radio[i] = count
+		}
+		r += v
+		count++
+	}
+}
+
+// initConsumer 初始化消费者
+func (f *FlowController) initConsumer() {
+	if !f.EnableConsumer ||
+		f.ConsumerFunc == nil ||
+		len(f.ConsumerFunc) == 0 {
+		return
+	}
+
+	// 如果设置大于1个划分区间
+	if f.Radio != nil && len(f.Radio) > 1 {
+		f.ConsumerBucketNum = uint32(len(f.Radio))
+	}
+
+	f.buffer = make([]chan unsafe.Pointer, f.ConsumerBucketNum, f.ConsumerBucketNum)
+	for i := range f.buffer {
+		f.buffer[i] = make(chan unsafe.Pointer, f.ConsumerBufferSize)
+	}
+
+	// 补齐消费者实现个数
+	for len(f.ConsumerFunc) < len(f.buffer) {
+		f.ConsumerFunc = append(f.ConsumerFunc, f.ConsumerFunc[0])
+	}
+
+	f.consumerDo()
 }
 
 // New ...
@@ -73,8 +192,17 @@ func New(opts ...FlowControllerOption) *FlowController {
 		o(&options)
 	}
 
-	return &FlowController{
-		Radio: options.Radio,
-		Hash:  options.Hash,
+	f := &FlowController{
+		Radio:              options.Radio,
+		Hash:               options.Hash,
+		EnableConsumer:     options.EnableConsumer,
+		ConsumerBufferSize: options.ConsumerBufferSize,
+		ConsumerBucketNum:  options.ConsumerBucketNum,
+		ConsumerFunc:       options.ConsumerFunc,
 	}
+
+	f.initRadio()
+	f.initConsumer()
+
+	return f
 }
