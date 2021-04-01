@@ -1,7 +1,7 @@
 /*
  * @Author: dongzhzheng
  * @Date: 2021-03-29 16:45:44
- * @LastEditTime: 2021-04-01 20:08:45
+ * @LastEditTime: 2021-04-01 20:31:10
  * @LastEditors: dongzhzheng
  * @FilePath: /flow_control/flow_control.go
  * @Description:
@@ -37,17 +37,23 @@ func defaultTafHash(key string) uint64 {
 	return uint64(hash)
 }
 
+// HashFunc 哈希函数原型
+type HashFunc func(string) uint64
+
+// ConsumerFunc 消费者函数原型
+type ConsumerFunc []func(ch <-chan unsafe.Pointer)
+
 // FlowControllerOption 选项函数
 type FlowControllerOption func(*FlowControllerOptions)
 
 // FlowControllerOptions 可配置项
 type FlowControllerOptions struct {
 	Radio              []uint32
-	Hash               func(string) uint64
+	Hash               HashFunc
 	EnableConsumer     bool
 	ConsumerBufferSize uint32
 	ConsumerBucketNum  uint32
-	ConsumerFunc       []func(ch <-chan unsafe.Pointer)
+	Consumer           ConsumerFunc
 }
 
 // WithForwardRadio 划分比例
@@ -88,18 +94,18 @@ func WithConsumerBucketNum(num uint32) FlowControllerOption {
 // WithConsumerFunc 消费者实现
 func WithConsumerFunc(f []func(ch <-chan unsafe.Pointer)) FlowControllerOption {
 	return func(fopt *FlowControllerOptions) {
-		fopt.ConsumerFunc = f
+		fopt.Consumer = f
 	}
 }
 
 // FlowController 流量控制
 type FlowController struct {
 	Radio              []uint32
-	Hash               func(string) uint64
+	Hash               HashFunc
 	EnableConsumer     bool
 	ConsumerBufferSize uint32
 	ConsumerBucketNum  uint32
-	ConsumerFunc       []func(ch <-chan unsafe.Pointer)
+	ConsumerFunc       ConsumerFunc
 
 	radio  []int
 	buffer []chan unsafe.Pointer
@@ -197,7 +203,7 @@ func New(opts ...FlowControllerOption) *FlowController {
 		EnableConsumer:     options.EnableConsumer,
 		ConsumerBufferSize: options.ConsumerBufferSize,
 		ConsumerBucketNum:  options.ConsumerBucketNum,
-		ConsumerFunc:       options.ConsumerFunc,
+		ConsumerFunc:       options.Consumer,
 	}
 
 	f.initRadio()
