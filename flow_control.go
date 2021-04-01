@@ -1,7 +1,7 @@
 /*
  * @Author: dongzhzheng
  * @Date: 2021-03-29 16:45:44
- * @LastEditTime: 2021-04-01 20:34:09
+ * @LastEditTime: 2021-04-01 20:36:32
  * @LastEditors: dongzhzheng
  * @FilePath: /flow_control/flow_control.go
  * @Description:
@@ -119,8 +119,10 @@ func (f *FlowController) Forward(key string) int {
 }
 
 // Push 灌入数据
-func (f *FlowController) Push(key string, data unsafe.Pointer) {
-	f.buffer[f.Forward(key)] <- data
+func (f *FlowController) Push(key string, data unsafe.Pointer) int {
+	k := f.Forward(key)
+	f.buffer[k] <- data
+	return len(f.buffer[k])
 }
 
 // consumerDo 消费者启动
