@@ -1,7 +1,7 @@
 /*
  * @Author: dongzhzheng
  * @Date: 2021-03-29 16:45:44
- * @LastEditTime: 2021-04-01 20:02:57
+ * @LastEditTime: 2021-04-01 20:08:45
  * @LastEditors: dongzhzheng
  * @FilePath: /flow_control/flow_control.go
  * @Description:
@@ -26,7 +26,7 @@ var (
 )
 
 // defaultTafHash
-func defaultTafHash(key string) uint32 {
+func defaultTafHash(key string) uint64 {
 	md5Ctx.Reset()
 	_, _ = md5Ctx.Write([]byte(key))
 	cipherStr := md5Ctx.Sum(nil)
@@ -34,7 +34,7 @@ func defaultTafHash(key string) uint32 {
 		(int32(cipherStr[2]&0xFF) << 16) |
 		(int32(cipherStr[1]&0xFF) << 8) |
 		(int32(cipherStr[0] & 0xFF))
-	return uint32(hash)
+	return uint64(hash)
 }
 
 // FlowControllerOption 选项函数
@@ -43,7 +43,7 @@ type FlowControllerOption func(*FlowControllerOptions)
 // FlowControllerOptions 可配置项
 type FlowControllerOptions struct {
 	Radio              []uint32
-	Hash               func(string) uint32
+	Hash               func(string) uint64
 	EnableConsumer     bool
 	ConsumerBufferSize uint32
 	ConsumerBucketNum  uint32
@@ -58,7 +58,7 @@ func WithForwardRadio(r []uint32) FlowControllerOption {
 }
 
 // WithHashFunc hash函数
-func WithHashFunc(h func(string) uint32) FlowControllerOption {
+func WithHashFunc(h func(string) uint64) FlowControllerOption {
 	return func(fopt *FlowControllerOptions) {
 		fopt.Hash = h
 	}
@@ -95,7 +95,7 @@ func WithConsumerFunc(f []func(ch <-chan unsafe.Pointer)) FlowControllerOption {
 // FlowController 流量控制
 type FlowController struct {
 	Radio              []uint32
-	Hash               func(string) uint32
+	Hash               func(string) uint64
 	EnableConsumer     bool
 	ConsumerBufferSize uint32
 	ConsumerBucketNum  uint32
