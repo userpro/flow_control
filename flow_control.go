@@ -1,7 +1,7 @@
 /*
  * @Author: dongzhzheng
  * @Date: 2021-03-29 16:45:44
- * @LastEditTime: 2021-03-30 17:03:12
+ * @LastEditTime: 2021-04-01 20:02:57
  * @LastEditors: dongzhzheng
  * @FilePath: /flow_control/flow_control.go
  * @Description:
@@ -148,14 +148,13 @@ func (f *FlowController) initRadio() {
 	}
 
 	// 划分区间映射到数组
-	f.radio = make([]int, 100, 100)
+	f.radio = make([]int, 100)
 	r := uint32(0)
 	for count, v := range f.Radio {
 		for i := r; i < r+v; i++ {
 			f.radio[i] = count
 		}
 		r += v
-		count++
 	}
 }
 
@@ -172,7 +171,7 @@ func (f *FlowController) initConsumer() {
 		f.ConsumerBucketNum = uint32(len(f.Radio))
 	}
 
-	f.buffer = make([]chan unsafe.Pointer, f.ConsumerBucketNum, f.ConsumerBucketNum)
+	f.buffer = make([]chan unsafe.Pointer, f.ConsumerBucketNum)
 	for i := range f.buffer {
 		f.buffer[i] = make(chan unsafe.Pointer, f.ConsumerBufferSize)
 	}
