@@ -1,7 +1,7 @@
 /*
  * @Author: dongzhzheng
  * @Date: 2021-03-29 16:45:44
- * @LastEditTime: 2021-04-01 20:31:10
+ * @LastEditTime: 2021-04-01 20:34:09
  * @LastEditors: dongzhzheng
  * @FilePath: /flow_control/flow_control.go
  * @Description:
@@ -41,7 +41,7 @@ func defaultTafHash(key string) uint64 {
 type HashFunc func(string) uint64
 
 // ConsumerFunc 消费者函数原型
-type ConsumerFunc []func(ch <-chan unsafe.Pointer)
+type ConsumerFunc func(ch <-chan unsafe.Pointer)
 
 // FlowControllerOption 选项函数
 type FlowControllerOption func(*FlowControllerOptions)
@@ -53,7 +53,7 @@ type FlowControllerOptions struct {
 	EnableConsumer     bool
 	ConsumerBufferSize uint32
 	ConsumerBucketNum  uint32
-	Consumer           ConsumerFunc
+	Consumer           []ConsumerFunc
 }
 
 // WithForwardRadio 划分比例
@@ -92,7 +92,7 @@ func WithConsumerBucketNum(num uint32) FlowControllerOption {
 }
 
 // WithConsumerFunc 消费者实现
-func WithConsumerFunc(f []func(ch <-chan unsafe.Pointer)) FlowControllerOption {
+func WithConsumerFunc(f []ConsumerFunc) FlowControllerOption {
 	return func(fopt *FlowControllerOptions) {
 		fopt.Consumer = f
 	}
@@ -105,7 +105,7 @@ type FlowController struct {
 	EnableConsumer     bool
 	ConsumerBufferSize uint32
 	ConsumerBucketNum  uint32
-	ConsumerFunc       ConsumerFunc
+	Consumer           []ConsumerFunc
 
 	radio  []int
 	buffer []chan unsafe.Pointer
@@ -128,7 +128,7 @@ func (f *FlowController) consumerDo() {
 	f.once.Do(
 		func() {
 			for i, ch := range f.buffer {
-				go f.ConsumerFunc[i](ch)
+				go f.Consumer[i](ch)
 			}
 		},
 	)
@@ -167,8 +167,8 @@ func (f *FlowController) initRadio() {
 // initConsumer 初始化消费者
 func (f *FlowController) initConsumer() {
 	if !f.EnableConsumer ||
-		f.ConsumerFunc == nil ||
-		len(f.ConsumerFunc) == 0 {
+		f.Consumer == nil ||
+		len(f.Consumer) == 0 {
 		return
 	}
 
@@ -183,8 +183,8 @@ func (f *FlowController) initConsumer() {
 	}
 
 	// 补齐消费者实现个数
-	for len(f.ConsumerFunc) < len(f.buffer) {
-		f.ConsumerFunc = append(f.ConsumerFunc, f.ConsumerFunc[0])
+	for len(f.Consumer) < len(f.buffer) {
+		f.Consumer = append(f.Consumer, f.Consumer[0])
 	}
 
 	f.consumerDo()
@@ -203,7 +203,7 @@ func New(opts ...FlowControllerOption) *FlowController {
 		EnableConsumer:     options.EnableConsumer,
 		ConsumerBufferSize: options.ConsumerBufferSize,
 		ConsumerBucketNum:  options.ConsumerBucketNum,
-		ConsumerFunc:       options.Consumer,
+		Consumer:           options.Consumer,
 	}
 
 	f.initRadio()
