@@ -1,7 +1,7 @@
 /*
  * @Author: dongzhzheng
  * @Date: 2021-03-29 16:45:44
- * @LastEditTime: 2021-04-01 20:36:32
+ * @LastEditTime: 2021-04-02 10:31:58
  * @LastEditors: dongzhzheng
  * @FilePath: /flow_control/flow_control.go
  * @Description:
@@ -115,12 +115,12 @@ type FlowController struct {
 // Forward 是否转发
 // 单纯函数 只用于进行流量划分
 func (f *FlowController) Forward(key string) int {
-	return f.radio[((f.Hash(key) & 0x7fffffff) % 100)]
+	return f.radio[(f.Hash(key) % 100)]
 }
 
 // Push 灌入数据
 func (f *FlowController) Push(key string, data unsafe.Pointer) int {
-	k := f.Forward(key)
+	k := f.Hash(key) % uint64(f.ConsumerBucketNum)
 	f.buffer[k] <- data
 	return len(f.buffer[k])
 }
@@ -149,10 +149,6 @@ func (f *FlowController) initRadio() {
 	}
 	if sum < 100 {
 		f.Radio = append(f.Radio, 100-sum)
-	}
-	// 如果划分区间只有一个 == 全量没有划分
-	if len(f.Radio) == 1 {
-		return
 	}
 
 	// 划分区间映射到数组
