@@ -1,7 +1,7 @@
 /*
  * @Author: dongzhzheng
  * @Date: 2021-03-29 16:45:44
- * @LastEditTime: 2021-04-02 10:31:58
+ * @LastEditTime: 2021-04-02 15:00:04
  * @LastEditors: dongzhzheng
  * @FilePath: /flow_control/flow_control.go
  * @Description:
@@ -11,13 +11,14 @@ package flowcontrol
 
 import (
 	"crypto/md5"
+	"fmt"
 	"sync"
 	"unsafe"
 )
 
 var (
 	defaultFlowControlOptions = FlowControllerOptions{
-		Radio:          []uint32{100},
+		Radio:          []uint64{100},
 		Hash:           defaultTafHash,
 		EnableConsumer: false,
 	}
@@ -48,16 +49,16 @@ type FlowControllerOption func(*FlowControllerOptions)
 
 // FlowControllerOptions 可配置项
 type FlowControllerOptions struct {
-	Radio              []uint32
+	Radio              []uint64
 	Hash               HashFunc
 	EnableConsumer     bool
-	ConsumerBufferSize uint32
-	ConsumerBucketNum  uint32
+	ConsumerBufferSize uint64
+	ConsumerBucketNum  uint64
 	Consumer           []ConsumerFunc
 }
 
 // WithForwardRadio 划分比例
-func WithForwardRadio(r []uint32) FlowControllerOption {
+func WithForwardRadio(r []uint64) FlowControllerOption {
 	return func(fopt *FlowControllerOptions) {
 		fopt.Radio = r
 	}
@@ -78,14 +79,14 @@ func WithEnableConsumer(ok bool) FlowControllerOption {
 }
 
 // WithConsumerBufferSize 消费者buffer大小
-func WithConsumerBufferSize(size uint32) FlowControllerOption {
+func WithConsumerBufferSize(size uint64) FlowControllerOption {
 	return func(fopt *FlowControllerOptions) {
 		fopt.ConsumerBufferSize = size
 	}
 }
 
 // WithConsumerBucketNum 消费者bucket数量
-func WithConsumerBucketNum(num uint32) FlowControllerOption {
+func WithConsumerBucketNum(num uint64) FlowControllerOption {
 	return func(fopt *FlowControllerOptions) {
 		fopt.ConsumerBucketNum = num
 	}
@@ -100,14 +101,15 @@ func WithConsumerFunc(f []ConsumerFunc) FlowControllerOption {
 
 // FlowController 流量控制
 type FlowController struct {
-	Radio              []uint32
+	Radio              []uint64
 	Hash               HashFunc
 	EnableConsumer     bool
-	ConsumerBufferSize uint32
-	ConsumerBucketNum  uint32
+	ConsumerBufferSize uint64
+	ConsumerBucketNum  uint64
 	Consumer           []ConsumerFunc
 
 	radio  []int
+	mod    uint64
 	buffer []chan unsafe.Pointer
 	once   sync.Once
 }
@@ -115,12 +117,12 @@ type FlowController struct {
 // Forward 是否转发
 // 单纯函数 只用于进行流量划分
 func (f *FlowController) Forward(key string) int {
-	return f.radio[(f.Hash(key) % 100)]
+	return f.radio[f.Hash(key)%f.mod]
 }
 
 // Push 灌入数据
 func (f *FlowController) Push(key string, data unsafe.Pointer) int {
-	k := f.Hash(key) % uint64(f.ConsumerBucketNum)
+	k := f.Forward(key)
 	f.buffer[k] <- data
 	return len(f.buffer[k])
 }
@@ -139,40 +141,54 @@ func (f *FlowController) consumerDo() {
 // initRadio 初始化分配比例
 func (f *FlowController) initRadio() {
 	if f.Radio == nil {
-		return
+		f.Radio = []uint64{100}
 	}
 
 	// 确保划分总额为100
-	sum := uint32(0)
+	sum := uint64(0)
 	for _, v := range f.Radio {
 		sum += v
 	}
 	if sum < 100 {
 		f.Radio = append(f.Radio, 100-sum)
 	}
+	if sum > 100 {
+		panic(fmt.Sprintf("invalid radio sum(%d), limited 100", sum))
+	}
 
 	// 划分区间映射到数组
 	f.radio = make([]int, 100)
-	r := uint32(0)
+	r := uint64(0)
 	for count, v := range f.Radio {
 		for i := r; i < r+v; i++ {
 			f.radio[i] = count
 		}
 		r += v
 	}
+
+	f.mod = uint64(len(f.radio))
 }
 
 // initConsumer 初始化消费者
 func (f *FlowController) initConsumer() {
-	if !f.EnableConsumer ||
-		f.Consumer == nil ||
-		len(f.Consumer) == 0 {
+	if !f.EnableConsumer {
 		return
 	}
 
-	// 如果设置大于1个划分区间
-	if f.Radio != nil && len(f.Radio) > 1 {
-		f.ConsumerBucketNum = uint32(len(f.Radio))
+	if f.Consumer == nil || len(f.Consumer) == 0 {
+		panic("enable but not set consumer")
+	}
+
+	if len(f.Radio) == 1 {
+		// 全量
+		f.radio = make([]int, f.ConsumerBucketNum)
+		for i := range f.radio {
+			f.radio[i] = i
+		}
+		f.mod = uint64(len(f.radio))
+	} else if len(f.Radio) > 1 {
+		// 如果设置大于1个划分区间
+		f.ConsumerBucketNum = uint64(len(f.Radio))
 	}
 
 	f.buffer = make([]chan unsafe.Pointer, f.ConsumerBucketNum)
