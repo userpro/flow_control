@@ -1,7 +1,7 @@
 /*
  * @Author: dongzhzheng
  * @Date: 2021-03-29 16:45:44
- * @LastEditTime: 2021-04-02 16:13:43
+ * @LastEditTime: 2021-04-02 16:18:51
  * @LastEditors: dongzhzheng
  * @FilePath: /flow_control/flow_control_test.go
  * @Description:
@@ -64,7 +64,7 @@ func TestNew(t *testing.T) {
 	}
 }
 
-// TestFlowController_Forward1 ...
+// TestFlowController_Forward1 生产消费者模式
 func TestFlowController_Forward1(t *testing.T) {
 	type testData struct {
 		a int
@@ -108,7 +108,7 @@ func TestFlowController_Forward1(t *testing.T) {
 	time.Sleep(time.Second)
 }
 
-// TestFlowController_Forward2 ...
+// TestFlowController_Forward2 流量划分+生产消费者模式
 func TestFlowController_Forward2(t *testing.T) {
 	type testData struct {
 		a int
@@ -138,7 +138,7 @@ func TestFlowController_Forward2(t *testing.T) {
 	time.Sleep(time.Second)
 }
 
-// TestFlowController_Forward3 ...
+// TestFlowController_Forward3 流量划分
 func TestFlowController_Forward3(t *testing.T) {
 	f := New(
 		WithForwardRadio([]uint64{10, 10, 20}),
