@@ -1,7 +1,7 @@
 <!--
  * @Author: dongzhzheng
  * @Date: 2021-03-30 14:26:57
- * @LastEditTime: 2021-04-02 16:21:42
+ * @LastEditTime: 2021-06-09 19:27:11
  * @LastEditors: dongzhzheng
  * @FilePath: /flow_control/README.md
  * @Description: 
@@ -123,13 +123,20 @@ import (
 	"hash/fnv"
 	"unsafe"
 
+	"git.code.oa.com/pcg_tkd_gnkf/datasource"
 	"git.code.oa.com/trpc-go/trpc-go/log"
+
+	report "git.woa.com/pcg_tkd_gnkf/reporter"
 
 	kafkawrapper "git.code.oa.com/pcg_tkd_gnkf/datasource/pkg/kafkaWrapper"
 	flowcontrol "git.code.oa.com/pcg_tkd_gnkf/flow_control"
 
 	goutils "github.com/userpro/go-utils"
 )
+
+var dsKafka datasource.Datasource
+
+/* 省略dsKafka的初始化 */
 
 // distributeData 分发的数据
 type distributeData struct {
@@ -140,9 +147,9 @@ type distributeData struct {
 // 生产者
 func producer(ctx context.Context) {
 	q := []*kafkawrapper.Query{{
-		Data: make(chan []*kafkawrapper.Data, taskConfig.KafkaConsumerBuffSize),
-		Ctx:  make(chan context.Context, taskConfig.KafkaConsumerBuffSize),
-		Ack:  make(chan error, taskConfig.KafkaConsumerBuffSize),
+		Data: make(chan []*kafkawrapper.Data, 1000),
+		Ctx:  make(chan context.Context, 1000),
+		Ack:  make(chan error, 1000),
 	}}
 
 	if err := dsKafka.Read(ctx, q); err != nil {
@@ -163,10 +170,10 @@ func producer(ctx context.Context) {
 
 	// flowcontrol实例
 	fc := flowcontrol.New(
-		flowcontrol.WithHashFunc(hashFunc),   // 设置自定义hash函数
-		flowcontrol.WithEnableConsumer(true), // 启用生产者消费者模式
-		flowcontrol.WithConsumerBucketNum(uint32(10)),    // 消费者个数
-		flowcontrol.WithConsumerBufferSize(uint32(1000)), // 每个消费者的buffer大小
+		flowcontrol.WithHashFunc(hashFunc),                                 // 设置自定义hash函数
+		flowcontrol.WithEnableConsumer(true),                               // 启用生产者消费者模式
+		flowcontrol.WithConsumerBucketNum(uint32(10)),                      // 消费者个数
+		flowcontrol.WithConsumerBufferSize(uint32(1000)),                   // 每个消费者的buffer大小
 		flowcontrol.WithConsumerFunc([]flowcontrol.ConsumerFunc{consumer}), // 消费者函数
 	)
 
@@ -185,6 +192,7 @@ func producer(ctx context.Context) {
 			}
 			// 返回值为队列长度，Push方法线程安全
 			queueLen := fc.Push(goutils.Bytes2Str(msg.Key), unsafe.Pointer(d))
+			// 监控上报
 			report.PropertyAvg("req-bucket_taskq_length", float64(queueLen))
 		}
 	}
@@ -208,4 +216,5 @@ func consumer(ch <-chan unsafe.Pointer) {
 func doTask(ctx context.Context, msg *kafkawrapper.Data) {
 	// TODO ...
 }
+
 ~~~
