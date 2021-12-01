@@ -1,7 +1,7 @@
 /*
  * @Author: dongzhzheng
  * @Date: 2021-03-29 16:45:44
- * @LastEditTime: 2021-04-02 15:00:04
+ * @LastEditTime: 2021-07-15 14:57:20
  * @LastEditors: dongzhzheng
  * @FilePath: /flow_control/flow_control.go
  * @Description:
@@ -17,17 +17,22 @@ import (
 )
 
 var (
-	defaultFlowControlOptions = FlowControllerOptions{
+	defaultFlowControlOptions = flowControllerOptions{
 		Radio:          []uint64{100},
 		Hash:           defaultTafHash,
 		EnableConsumer: false,
 	}
-
-	md5Ctx = md5.New()
 )
+
+// FlowController 流量控制
+type FlowController interface {
+	Forward(key string) int
+	Push(key string, data unsafe.Pointer) int
+}
 
 // defaultTafHash
 func defaultTafHash(key string) uint64 {
+	md5Ctx := md5.New()
 	md5Ctx.Reset()
 	_, _ = md5Ctx.Write([]byte(key))
 	cipherStr := md5Ctx.Sum(nil)
@@ -45,10 +50,10 @@ type HashFunc func(string) uint64
 type ConsumerFunc func(ch <-chan unsafe.Pointer)
 
 // FlowControllerOption 选项函数
-type FlowControllerOption func(*FlowControllerOptions)
+type FlowControllerOption func(*flowControllerOptions)
 
-// FlowControllerOptions 可配置项
-type FlowControllerOptions struct {
+// flowControllerOptions 可配置项
+type flowControllerOptions struct {
 	Radio              []uint64
 	Hash               HashFunc
 	EnableConsumer     bool
@@ -59,48 +64,47 @@ type FlowControllerOptions struct {
 
 // WithForwardRadio 划分比例
 func WithForwardRadio(r []uint64) FlowControllerOption {
-	return func(fopt *FlowControllerOptions) {
+	return func(fopt *flowControllerOptions) {
 		fopt.Radio = r
 	}
 }
 
 // WithHashFunc hash函数
 func WithHashFunc(h func(string) uint64) FlowControllerOption {
-	return func(fopt *FlowControllerOptions) {
+	return func(fopt *flowControllerOptions) {
 		fopt.Hash = h
 	}
 }
 
 // WithEnableConsumer 开启消费者模式
 func WithEnableConsumer(ok bool) FlowControllerOption {
-	return func(fopt *FlowControllerOptions) {
+	return func(fopt *flowControllerOptions) {
 		fopt.EnableConsumer = ok
 	}
 }
 
 // WithConsumerBufferSize 消费者buffer大小
 func WithConsumerBufferSize(size uint64) FlowControllerOption {
-	return func(fopt *FlowControllerOptions) {
+	return func(fopt *flowControllerOptions) {
 		fopt.ConsumerBufferSize = size
 	}
 }
 
 // WithConsumerBucketNum 消费者bucket数量
 func WithConsumerBucketNum(num uint64) FlowControllerOption {
-	return func(fopt *FlowControllerOptions) {
+	return func(fopt *flowControllerOptions) {
 		fopt.ConsumerBucketNum = num
 	}
 }
 
 // WithConsumerFunc 消费者实现
 func WithConsumerFunc(f []ConsumerFunc) FlowControllerOption {
-	return func(fopt *FlowControllerOptions) {
+	return func(fopt *flowControllerOptions) {
 		fopt.Consumer = f
 	}
 }
 
-// FlowController 流量控制
-type FlowController struct {
+type flowController struct {
 	Radio              []uint64
 	Hash               HashFunc
 	EnableConsumer     bool
@@ -116,19 +120,19 @@ type FlowController struct {
 
 // Forward 是否转发
 // 单纯函数 只用于进行流量划分
-func (f *FlowController) Forward(key string) int {
+func (f *flowController) Forward(key string) int {
 	return f.radio[f.Hash(key)%f.mod]
 }
 
 // Push 灌入数据
-func (f *FlowController) Push(key string, data unsafe.Pointer) int {
+func (f *flowController) Push(key string, data unsafe.Pointer) int {
 	k := f.Forward(key)
 	f.buffer[k] <- data
 	return len(f.buffer[k])
 }
 
 // consumerDo 消费者启动
-func (f *FlowController) consumerDo() {
+func (f *flowController) consumerDo() {
 	f.once.Do(
 		func() {
 			for i, ch := range f.buffer {
@@ -139,7 +143,7 @@ func (f *FlowController) consumerDo() {
 }
 
 // initRadio 初始化分配比例
-func (f *FlowController) initRadio() {
+func (f *flowController) initRadio() {
 	if f.Radio == nil {
 		f.Radio = []uint64{100}
 	}
@@ -170,7 +174,7 @@ func (f *FlowController) initRadio() {
 }
 
 // initConsumer 初始化消费者
-func (f *FlowController) initConsumer() {
+func (f *flowController) initConsumer() {
 	if !f.EnableConsumer {
 		return
 	}
@@ -185,7 +189,6 @@ func (f *FlowController) initConsumer() {
 		for i := range f.radio {
 			f.radio[i] = i
 		}
-		f.mod = uint64(len(f.radio))
 	} else if len(f.Radio) > 1 {
 		// 如果设置大于1个划分区间
 		f.ConsumerBucketNum = uint64(len(f.Radio))
@@ -205,13 +208,13 @@ func (f *FlowController) initConsumer() {
 }
 
 // New ...
-func New(opts ...FlowControllerOption) *FlowController {
+func New(opts ...FlowControllerOption) FlowController {
 	options := defaultFlowControlOptions
 	for _, o := range opts {
 		o(&options)
 	}
 
-	f := &FlowController{
+	f := &flowController{
 		Radio:              options.Radio,
 		Hash:               options.Hash,
 		EnableConsumer:     options.EnableConsumer,
