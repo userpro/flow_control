@@ -41,7 +41,7 @@ func TestNew(t *testing.T) {
 	tests := []struct {
 		name string
 		args args
-		want *FlowController
+		want *flowController
 	}{
 		{
 			name: "test1",
@@ -49,7 +49,7 @@ func TestNew(t *testing.T) {
 				WithForwardRadio([]uint64{10}),
 				WithHashFunc(defaultTafHash),
 			}},
-			want: &FlowController{
+			want: &flowController{
 				Radio: []uint64{10},
 				Hash:  defaultTafHash,
 			},
